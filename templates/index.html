@@ -1,0 +1,271 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+<meta charset="UTF-8">
+<title>Stub Server</title>
+
+<style>
+    :root {
+        --bg: #121212;
+        --bg2: #1e1e1e;
+        --border: #333;
+        --text: #eee;
+        --text2: #bbb;
+        --accent: #2ea3ff;
+        --accent-hover: #5bbcff;
+        --radius: 6px;
+
+        --done-bg: #0d2214;
+        --done-dot: #48c774;
+        --done-opacity: 0.65;
+    }
+
+    body {
+        margin: 0;
+        font-family: "Segoe UI", Arial, sans-serif;
+        background: var(--bg);
+        color: var(--text);
+    }
+
+    /* ---------- Верхняя панель ---------- */
+    #topbar {
+        position: fixed;
+        top: 0;
+        left: 0;
+        right: 0;
+        padding: 12px 20px;
+        background: var(--bg2);
+        border-bottom: 1px solid var(--border);
+        z-index: 100;
+    }
+
+    #topbar h2 {
+        margin: 0 0 10px 0;
+        font-weight: 600;
+        color: var(--accent);
+    }
+
+    button {
+        padding: 7px 16px;
+        border: 1px solid var(--border);
+        background: var(--bg);
+        cursor: pointer;
+        border-radius: var(--radius);
+        font-size: 14px;
+        color: var(--text);
+        transition: background 0.2s;
+    }
+
+    button:hover:not(:disabled) {
+        background: var(--accent-hover);
+        border-color: var(--accent-hover);
+        color: #000;
+    }
+
+    button:disabled {
+        opacity: 0.5;
+        cursor: default;
+    }
+
+    #editor-box {
+        display: flex;
+        gap: 20px;
+        align-items: flex-start;
+        flex-wrap: wrap;
+        margin-top: 5px;
+    }
+
+    #editor-box textarea,
+    #editor-box input {
+        font-family: Consolas, monospace;
+        background: #0d0d0d;
+        color: var(--text);
+        border: 1px solid var(--border);
+        border-radius: var(--radius);
+        padding: 6px;
+    }
+
+    textarea {
+        resize: vertical;
+    }
+
+    #content {
+        margin-top: 150px;
+        padding: 20px;
+    }
+
+    table {
+        width: 100%;
+        border-collapse: collapse;
+        background: var(--bg2);
+        border-radius: var(--radius);
+        overflow: hidden;
+    }
+
+    th, td {
+        border: 1px solid var(--border);
+        padding: 6px 8px;
+        font-size: 13px;
+        vertical-align: top;
+    }
+
+    th {
+        background: #222;
+        font-weight: 600;
+        color: var(--text2);
+    }
+
+    th.id-col, td.id-col { width: 40px; }
+    th.time-col, td.time-col { width: 130px; }
+    th.method-col, td.method-col { width: 80px; }
+
+    pre {
+        margin: 0;
+        white-space: pre-wrap;
+        word-wrap: break-word;
+    }
+
+    /* ---- Подсветка JSON ---- */
+    .json-key   { color: #5bbcff; }
+    .json-value { color: #f2c744; }
+    .json-null  { color: #ff6b6b; }
+
+    /* ---- Строки, на которые ответили ---- */
+    tr.answered {
+        background: var(--done-bg) !important;
+        opacity: var(--done-opacity);
+    }
+
+    tr.answered td:first-child::before {
+        content: "●";
+        color: var(--done-dot);
+        margin-right: 6px;
+    }
+
+</style>
+
+</head>
+<body>
+
+<div id="topbar">
+    <h2>Stub Server</h2>
+
+
+    <div id="editor-box">
+        <div>
+            <label>code:<br>
+                <input type="number" id="resp-code" value="200" style="width:90px">
+            </label>
+        </div>
+
+        <div style="flex: 1;">
+            <label>message:<br>
+                <textarea id="resp-body" rows="4">{ "code": 200, "msg": "success" }</textarea>
+            </label>
+        </div>
+    </div>
+    <button onclick="clearLog()">clear log</button>
+    <button id="send-response-btn" disabled>REPLY</button>
+</div>
+
+<div id="content">
+    <table>
+    <tr>
+      <th class="id-col">id</th>
+      <th class="time-col">time</th>
+      <th class="method-col">method</th>
+      <th>path</th>
+      <th>body</th>
+    </tr>
+    <tbody id="req-table"></tbody>
+    </table>
+</div>
+
+<script>
+let lastRequestId = null;
+let answeredSet = new Set();
+
+function highlightJSON(jsonText) {
+    try {
+        const obj = JSON.parse(jsonText);
+        const pretty = JSON.stringify(obj, null, 2);
+
+        return pretty
+            .replace(/"(.*?)":/g, '<span class="json-key">"$1"</span>:')
+            .replace(/: "(.*?)"/g, ': <span class="json-value">"$1"</span>')
+            .replace(/: ([0-9.\-]+)/g, ': <span class="json-value">$1</span>')
+            .replace(/: null/g, ': <span class="json-null">null</span>');
+    } catch {
+        return jsonText;
+    }
+}
+
+async function clearLog() {
+    await fetch('/clear', {method: 'POST'});
+    lastRequestId = null;
+    answeredSet.clear();
+    document.getElementById('send-response-btn').disabled = true;
+    await reloadRequests();
+}
+
+async function reloadRequests() {
+    const res = await fetch('/api/requests');
+    const data = await res.json();
+    const tbody = document.getElementById('req-table');
+    tbody.innerHTML = '';
+
+    if (data.length > 0) {
+        lastRequestId = data[data.length - 1].id;
+        document.getElementById('send-response-btn').disabled = false;
+    } else {
+        lastRequestId = null;
+        document.getElementById('send-response-btn').disabled = true;
+    }
+
+    data.forEach(r => {
+        const tr = document.createElement('tr');
+
+        if (answeredSet.has(r.id)) {
+            tr.classList.add("answered");
+        }
+
+        const highlighted = highlightJSON(r.body);
+
+        tr.innerHTML = `
+            <td class="id-col">${r.id}</td>
+            <td class="time-col">${r.time}</td>
+            <td class="method-col">${r.method}</td>
+            <td>${r.path}</td>
+            <td><pre>${highlighted}</pre></td>
+        `;
+
+        tbody.appendChild(tr);
+    });
+}
+
+document.getElementById('send-response-btn').addEventListener('click', async () => {
+    if (!lastRequestId) return;
+
+    const code = document.getElementById('resp-code').value;
+    const body = document.getElementById('resp-body').value;
+
+    await fetch('/reply', {
+        method: 'POST',
+        headers: {'Content-Type': 'application/x-www-form-urlencoded'},
+        body: `request_id=${lastRequestId}&code=${code}&body=${encodeURIComponent(body)}`
+    });
+
+    answeredSet.add(lastRequestId);
+
+    document.getElementById('send-response-btn').disabled = true;
+    lastRequestId = null;
+
+    reloadRequests();
+});
+
+setInterval(reloadRequests, 2000);
+reloadRequests();
+</script>
+
+</body>
+</html>
