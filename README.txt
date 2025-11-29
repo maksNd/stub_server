@@ -1,3 +1,3 @@
 run Stub Server
 
-python -m uvicorn app:app --host 127.0.0.1 --port 5000
+docker run -d -p 80:80 maksnd/server_plug:latest
